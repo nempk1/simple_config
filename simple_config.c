@@ -86,7 +86,7 @@ config_parse_file(const char *path, struct s_config *res)
 			free(var);
 			continue;
 		} 
-		LIST_INSERT_HEAD(&res->var_list, var, entries);
+		TAILQ_INSERT_TAIL(&res->var_list, var, entries);
 	} 
 	free(line);
 	fclose(fp);
@@ -97,7 +97,7 @@ struct s_config *
 config_new(void)
 {
 	struct s_config *result = malloc(sizeof(*result));
-	LIST_INIT(&result->var_list);
+	TAILQ_INIT(&result->var_list);
 	return result;
 }
 
@@ -105,7 +105,7 @@ long
 config_get_int(const char *var_name, struct s_config *cfg)
 {
 	struct var_node *tmp = NULL;
-	LIST_FOREACH(tmp, &cfg->var_list, entries) {
+	TAILQ_FOREACH(tmp, &cfg->var_list, entries) {
 		if(tmp->data.type == INT &&
 			!strcmp(tmp->data.name, var_name))
 			return tmp->data.l_value;
@@ -117,7 +117,7 @@ char *
 config_get_string(const char *var_name, struct s_config *cfg)
 {
 	struct var_node *tmp = NULL;
-	LIST_FOREACH(tmp, &cfg->var_list, entries) {
+	TAILQ_FOREACH(tmp, &cfg->var_list, entries) {
 		if(tmp->data.type == STRING &&
 			!strcmp(tmp->data.name, var_name))
 			return tmp->data.s_value;
@@ -128,9 +128,9 @@ config_get_string(const char *var_name, struct s_config *cfg)
 void config_destroy(struct s_config **cfg) 
 {
 	struct var_node *n1 = NULL;
-	while (!LIST_EMPTY(&(*cfg)->var_list)) {		
-		n1 = LIST_FIRST(&(*cfg)->var_list);
-		LIST_REMOVE(n1, entries);
+	while ((n1 = TAILQ_FIRST(&(*cfg)->var_list)))
+ 	{		
+		TAILQ_REMOVE(&(*cfg)->var_list,n1, entries);
 		if(n1->data.type == STRING)
 			free(n1->data.s_value);
 		free(n1->data.name);

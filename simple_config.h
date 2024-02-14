@@ -1,6 +1,7 @@
 #ifndef SIMPLE_CONFIG
 #define SIMPLE_CONFIG
 
+#include <cstdio>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -38,13 +39,15 @@ struct var {
 
 struct var_node {
 	struct var data;		
-	LIST_ENTRY(var_node) entries;
+	TAILQ_ENTRY(var_node) entries;
 };
 
-LIST_HEAD(list, var_node);
+TAILQ_HEAD(list, var_node);
 
 struct s_config {
 	struct list 	var_list;	
+	size_t lines;
+	FILE *fp;
 };
 
 extern enum parse
