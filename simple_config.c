@@ -27,20 +27,30 @@ static char *_trim(char *s)
 }
 
 
-enum parse
+/*
+ * Parse line to an var, the line
+ * will have the start & end trimed
+ *
+ * @param char* line to be parsed
+ * @param struct var* poin to store 
+ * result
+ *
+ * @return VALID on success else error.
+ */
+static enum parse
 config_parse_line(char *org_line, struct var *res)
 {
-	if(!res)
-		return INVALID_VAR_NULL;
-
 	char *tmp = NULL;
 	char *ptr_name = NULL;
 	char *ptr_value = NULL;
 	char *ptr_line = org_line;		
 
+	if(!res)
+		return INVALID_VAR_NULL;
+
 	ptr_line = _trim(ptr_line);
 
-	if (!strncmp("//",ptr_line, strlen("//"))) {
+	if (!strncmp("//",ptr_line, sizeof("//")-1)) {
 		res->raw_line = strdup(org_line);
 		if (!res->raw_line)
 			return ERROR_PARSER;
@@ -95,19 +105,34 @@ config_parse_line(char *org_line, struct var *res)
 	return VALID;	
 }
 
-int
+/*
+ * This function uses the config_parse_line
+ * basicale stores every line in 
+ * the struct s_config param that at the end
+ * will have buffered all the lines from the file
+ * to be edited.
+ *
+ * @param const char* Path off file to be parsed
+ *                     
+ * @param struct s_config* Buffer of loaded and 
+ *                         parsed files
+ *
+ * @return 0 on successs, else error;
+ */
+static enum parse
 config_parse_file(const char *path, struct s_config *res)
 {
 	char *line = NULL;
 	size_t len = 0;
-	size_t length;
 	struct var_node *var;
 	FILE *fp = fopen(path, "r");
 
-	if(!fp)
-		err(1, "%s", path);	
+	if (!fp)
+		return ERROR_FILE;
 
-	while ((length = getline(&line, &len, fp)) != -1) {
+	res->lines = 0;
+
+	while ((getline(&line, &len, fp)) != -1) {
 		var = malloc(sizeof(*var));	
 		if(config_parse_line(line, &var->data)) {
 			free(var);
@@ -118,16 +143,70 @@ config_parse_file(const char *path, struct s_config *res)
 	} 
 	free(line);
 	fclose(fp);
-	return 0;
+	return VALID;
 }
 
-struct s_config *
-config_new(void)
+
+enum parse 
+config_init(const char *file_path, struct s_config **cfg)
 {
-	struct s_config *result = malloc(sizeof(*result));
-	TAILQ_INIT(&result->var_list);
-	result->lines = 0;
-	return result;
+	enum parse result;
+	if (!(*cfg)) { /* If NULL */
+		(*cfg) = malloc(sizeof(struct s_config));
+
+		if (!(*cfg)) /* If NULL = Not enough memory*/
+			return ERROR;
+	} 
+	TAILQ_INIT(&(*cfg)->var_list);		
+	(*cfg)->lines = 0;
+	(*cfg)->file_path = strdup(file_path);
+
+	/* If result != VALID return the error from 
+	 * config_parse_file
+	 */
+	if((result = config_parse_file(file_path, *cfg)))
+		return result;
+
+	return VALID;
+}
+
+void config_clear(struct s_config *cfg) 
+{
+	struct var_node *n1 = NULL;
+	while ((n1 = TAILQ_FIRST(&cfg->var_list)))
+ 	{		
+		TAILQ_REMOVE(&cfg->var_list,n1, entries);
+
+		if(n1->data.type == STRING)
+			free(n1->data.s_value);
+		else if (n1->data.type == COMMENT) {
+			free(n1->data.raw_line);	
+			free(n1);
+			continue;
+		}
+
+		free(n1->data.name);
+		free(n1);
+	}	
+	free((void*)cfg->file_path);
+	cfg->file_path = NULL;
+	cfg->lines = 0;
+}
+
+void 
+config_destroy(struct s_config **cfg) 
+{
+	struct var_node *n1 = NULL;
+	while ((n1 = TAILQ_FIRST(&(*cfg)->var_list)))
+ 	{		
+		TAILQ_REMOVE(&(*cfg)->var_list,n1, entries);
+		if(n1->data.type == STRING)
+			free(n1->data.s_value);
+		free(n1->data.name);
+		free(n1);
+	}	
+	free(*cfg);
+	(*cfg) = NULL;
 }
 
 long 
@@ -165,20 +244,6 @@ config_get_var(const char *var_name, struct s_config *cfg)
 	return NULL;
 }
 
-void config_destroy(struct s_config **cfg) 
-{
-	struct var_node *n1 = NULL;
-	while ((n1 = TAILQ_FIRST(&(*cfg)->var_list)))
- 	{		
-		TAILQ_REMOVE(&(*cfg)->var_list,n1, entries);
-		if(n1->data.type == STRING)
-			free(n1->data.s_value);
-		free(n1->data.name);
-		free(n1);
-	}	
-	free(*cfg);
-	(*cfg) = NULL;
-}
 
 enum parse
 config_set_var(const char *var_name, void *data, enum var_type type,
@@ -186,45 +251,49 @@ config_set_var(const char *var_name, void *data, enum var_type type,
 {
 	struct var_node *tmp = NULL;
 	struct var_node *var = NULL;
+	int found = 0;
 
 	if(!data)
 		return INVALID_VALUE;
 
-	switch (action) {
-		case CHANGE:
-			TAILQ_FOREACH(tmp, &cfg->var_list, entries) {
-				if(tmp->data.type == COMMENT ||
-				   strcmp(tmp->data.name, var_name)) {
-					continue;
-				}
-				/* Only get here if found var_name */
-				if (type == STRING) {
-					char *res_str = strdup(data);		
+	TAILQ_FOREACH(tmp, &cfg->var_list, entries) {
+		if(tmp->data.type == COMMENT ||
+				strcmp(tmp->data.name, var_name)) {
+			continue;
+		} else {
+			found = 1;
+			break;
+		}
+	}
+	if (action == (CHANGE | ADD)) {
+		if(found) {
+			if (type == STRING) {
+				char *res_str = strdup(data);
+				if(tmp->data.type == STRING)
 					free(tmp->data.s_value);
-					tmp->data.s_value= res_str;
-				} else if (type == INT) {
-					if(tmp->data.type == STRING)
-						free(tmp->data.s_value);
-					tmp->data.type = INT;
-					tmp->data.l_value = *(long*)data;
-				} else {
-					return INVALID_TYPE;	
-				}
-				return CHANGE_OK;
+				tmp->data.s_value = res_str;
+			} else if (type == INT) {
+				if(tmp->data.type == STRING)
+					free(tmp->data.s_value);
+				tmp->data.type = INT;
+				tmp->data.l_value = *(long*)data;
+			} else {
+				return INVALID_TYPE;	
 			}
-			return NOT_FOUND;
-		case ADD:
+			return CHANGE_OK;
+		} else {
 			var = malloc(sizeof(*var));	
-			var->data.name = strdup(var_name);
 			if(!var)
 				return ERROR;
 
+			var->data.name = strdup(var_name);
+
 			if (type == COMMENT) {
-				char *res_str = strdup(data);		
+				char *res_str = strdup(data);
 				var->data.raw_line = res_str;
 				var->data.type = COMMENT;
 			} else if (type == STRING) {
-				char *res_str = strdup(data);		
+				char *res_str = strdup(data);
 				var->data.s_value= res_str;
 				var->data.type = STRING;
 			} else if (type == INT) {
@@ -237,8 +306,55 @@ config_set_var(const char *var_name, void *data, enum var_type type,
 			TAILQ_INSERT_TAIL(&cfg->var_list, var, entries);
 			cfg->lines++;
 			return ADD_OK;
-	}
-	return ERROR;
+		}		
+	} else if (action == CHANGE) {
+		if(found) {
+			if (type == STRING) {
+				char *res_str = strdup(data);
+				if(tmp->data.type == STRING)
+					free(tmp->data.s_value);
+				tmp->data.s_value = res_str;
+			} else if (type == INT) {
+				if(tmp->data.type == STRING)
+					free(tmp->data.s_value);
+				tmp->data.type = INT;
+				tmp->data.l_value = *(long*)data;
+			} else {
+				return INVALID_TYPE;	
+			}
+			return CHANGE_OK;
+		} 
+		return NOT_FOUND;	
+	} else if (action == ADD) {
+		if(found) {
+			return DUPLICATED;	
+		}
+		var = malloc(sizeof(*var));	
+		var->data.name = strdup(var_name);
+		if(!var)
+			return ERROR;
+
+		if (type == COMMENT) {
+			char *res_str = strdup(data);		
+			var->data.raw_line = res_str;
+			var->data.type = COMMENT;
+		} else if (type == STRING) {
+			char *res_str = strdup(data);		
+			var->data.s_value= res_str;
+			var->data.type = STRING;
+		} else if (type == INT) {
+			var->data.type = INT;
+			var->data.l_value = *(long*)data;
+		} else {
+			free(var);
+			return INVALID_TYPE;	
+		}
+		TAILQ_INSERT_TAIL(&cfg->var_list, var, entries);
+		cfg->lines++;
+		return ADD_OK;
+
+	} 
+	return INVALID_ACTION;	
 }
 
 enum parse
@@ -248,19 +364,51 @@ config_save_file(const char *pathname, struct s_config *cfg)
 	FILE *fp = fopen(pathname, "w");
 
 	if(!fp)
-		err(1, "%s", pathname);	
+		return ERROR_FILE;
 
 	TAILQ_FOREACH(tmp, &cfg->var_list, entries) {
-		/* Only get here if found var_name */
-		if (tmp->data.type == COMMENT) {
+		if (tmp->data.type == COMMENT)
 			fprintf(fp, "%s\n", tmp->data.raw_line);
-		} else if (tmp->data.type == STRING) {
-			fprintf(fp, "%s = \"%s\"\n", tmp->data.name,
-				      	tmp->data.s_value);
+		else if (tmp->data.type == STRING) {
+			fprintf(fp, "%s = \"%s\"\n",
+				tmp->data.name,
+				tmp->data.s_value);
 		} else if (tmp->data.type == INT) {
-			fprintf(fp, "%s = %ld\n", tmp->data.name,
-					tmp->data.l_value);
-		}	
+			fprintf(fp, "%s = %ld\n", 
+				tmp->data.name,
+				tmp->data.l_value);
+		}
+	}
+
+	fclose(fp);
+	return VALID;
+}
+
+enum parse
+config_save(struct s_config *cfg)
+{
+	struct var_node *tmp = NULL;
+
+	if(!cfg->file_path)
+		return ERROR_PATH;
+
+	FILE *fp = fopen(cfg->file_path, "w");
+
+	if(!fp)
+		return ERROR_FILE;
+
+	TAILQ_FOREACH(tmp, &cfg->var_list, entries) {
+		if (tmp->data.type == COMMENT)
+			fprintf(fp, "%s\n", tmp->data.raw_line);
+		else if (tmp->data.type == STRING) {
+			fprintf(fp, "%s = \"%s\"\n",
+				tmp->data.name,
+				tmp->data.s_value);
+		} else if (tmp->data.type == INT) {
+			fprintf(fp, "%s = %ld\n", 
+				tmp->data.name,
+				tmp->data.l_value);
+		}
 	}
 
 	fclose(fp);

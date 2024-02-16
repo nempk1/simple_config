@@ -28,11 +28,15 @@ enum parse{
 	INVALID_VAR_NULL,
 	INVALID_TYPE,
 	INVALID_VALUE,
+	INVALID_ACTION,
 	ERROR_PARSER,
+	ERROR_FILE,
+	ERROR_PATH,
 	ERROR,
+	DUPLICATED,
+	NOT_FOUND,
 	CHANGE_OK,
 	ADD_OK,
-	NOT_FOUND,
 	VALID = 0
 };
 
@@ -56,50 +60,23 @@ TAILQ_HEAD(list, var_node);
 
 struct s_config {
 	struct list 	 var_list;	
-	FILE 		*fp;
+	const char 	*file_path;
 	size_t 		 lines;
 };
 
 /*
- * Parse line to an var, the line
- * will have the start, end trimed
+ * If receives NULL cfg will allocate
+ * and parse the file from file_path
  *
- * @param char* line to be parsed
- * @param struct var* poin to store 
- * result
+ * @param File path to be parsed
+ * @param cfg pointer ref to be used
  *
- * @return VALID on success else error.
+ * @return VALID on success, else ERROR*
+ * 	   and errno set to error code
+ * 	   of open or malloc.
  */
-extern enum parse
-config_parse_line(char *, struct var *);
-
-/*
- * This function uses the config_parse_line
- * basicale stores every line in 
- * the struct s_config param that at the end
- * will have buffered all the lines from the file
- * to be edited.
- *
- * @param const char* Path off file to be parsed
- *                     
- * @param struct s_config* Buffer of loaded and 
- *                         parsed files
- *
- * @return 0 on successs, else error;
- */
-extern int
-config_parse_file(const char *, struct s_config*);
-
-/*
- * Simple allocate struct s_config
- * and set some of the initial 
- * value.
- *
- * @return Pointer to s_config on success,
- *         NULL on error.
- */
-extern struct s_config *
-config_new(void);
+extern enum parse 
+config_init(const char *, struct s_config**);
 
 /*
  * Will free all the memory used by
@@ -112,23 +89,38 @@ config_new(void);
 extern void
 config_destroy(struct s_config **);
 
-// TODO
-extern int
-config_reload(struct s_config *);
+/*
+ * Will free all the memory used by
+ * the s_config. It can be reused.
+ *
+ * On success will set the param to NULL.
+ *
+ * @param Pointer to s_config,
+ */
+extern void
+config_clear(struct s_config*);
 
-// TODO
-extern int
+/*
+ * Will write the all the data in the param
+ * using the 'ideal' syntax to the filepath 
+ * store in the cfg struct
+ *
+ * @param Config struct with the data.
+ * 
+ * @return VALID on success, else error.
+ */
+extern enum parse
 config_save(struct s_config *);
 
 /*
  * Will write the all the data in the param
  * using the 'ideal' syntax to the filepath 
  *
- * @param const char* Path to file to be written
+ * @param Path to file to be written
  * 		      it will override if the file
  * 		      already exists
  *
- * @param struct s_config* Config struct with the data.
+ * @param Config struct with the data.
  * 
  * @return VALID on success, else error.
  */
@@ -139,9 +131,9 @@ config_save_file(const char*, struct s_config *);
  * Will get the reference to the var struct 
  * according to the var_name in the param
  *
- * @param const char* Variable name to be searched
+ * @param Variable name to be searched
  *
- * @param struct s_config* Config refer to search.
+ * @param Config refer to search.
  * 
  * @return Reference the var on success,
  *         else NULL.
@@ -153,8 +145,8 @@ config_get_var(const char *, struct s_config *);
  * Will search for the var name and
  * return value if found.
  *
- * @param const char* var name.
- * @param struct s_config* Config to be searched.
+ * @param var name.
+ * @param Config to be searched.
  *
  * @return Value if found, else 0.
  * 	   Theres no way to know if your var
@@ -167,8 +159,8 @@ config_get_int(const char *, struct s_config *);
  * Will search for the var name and 
  * return pointer to string if found.
  *
- * @param const char* var name.
- * @param struct s_config* Config to be searched.
+ * @param var name.
+ * @param Config to be searched.
  *
  * @return Pointer if found, else NULL.
  */
@@ -178,7 +170,7 @@ config_get_string(const char *, struct s_config *);
 /* Will ADD or CHANGE variable value.
  *
  * @param var name
- * @param value
+ * @param Value to store
  * @param specifie type of var
  * @param Config reference where to store
  * @param ADD or CHANGE, never both. (for now)
