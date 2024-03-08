@@ -67,19 +67,18 @@ config_parse_line(char *org_line, struct var *res)
 		res->raw_line = strdup(org_line);
 		if (!res->raw_line)
 			return ERROR_PARSER;
-		else {
-			res->name = NULL;
-			res->type = COMMENT;
-			res->s_value = NULL;
-			return VALID;
-		}
+
+		res->name = NULL;
+		res->type = COMMENT;
+		res->s_value = NULL;
 		return VALID;
 	}
 
 	ptr_name = strsep(&ptr_line, "=");
-	if (!ptr_line) {
+
+	if (!ptr_line) 
 		return INVALID_VAR_SYNTAX;
-	}
+	
 	ptr_value = ptr_line;
 	ptr_name = _rtrim(ptr_name);
 	ptr_value = _ltrim(ptr_value);
@@ -88,9 +87,10 @@ config_parse_line(char *org_line, struct var *res)
 		ptr_value++;
 		tmp = ptr_value;
 		ptr_value = strsep(&tmp, "\"");
-		if(!tmp) {
+
+		if(!tmp)
 			return INVALID_STRING_VALUE;
-		}
+		
 		res->type = STRING;
 		res->s_value = strdup(ptr_value);
 	} else { 
